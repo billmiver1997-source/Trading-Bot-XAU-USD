@@ -24,38 +24,48 @@ jobs:
           sshpass -e ssh -o StrictHostKeyChecking=no "$USER@$HOST" "mkdir -p /tmp/mt5deploy"
           sshpass -e scp -o StrictHostKeyChecking=no *.mq5 "$USER@$HOST:/tmp/mt5deploy/"
 
-      - name: Deploy EAs to Experts folders, Scripts to Scripts folders
+      - name: Deploy and compile (terminal keeps running)
         env:
           SSHPASS: ${{ secrets.SERVER_PASSWORD }}
           USER: ${{ secrets.SERVER_USER }}
           HOST: ${{ secrets.SERVER_HOST }}
         run: |
           sshpass -e ssh -o StrictHostKeyChecking=no "$USER@$HOST" bash << 'ENDSSH'
-            EXPERTS_DIRS=(
-              "/root/.wine/drive_c/Program Files/Equiti Brokerage (Seychelles) MT5 Terminal/MQL5/Experts"
-              "/root/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Experts"
-              "/root/.wine_puprime/drive_c/Program Files/MetaTrader 5/MQL5/Experts"
-              "/root/.wine_tmgm/drive_c/Program Files/MetaTrader 5/MQL5/Experts"
-            )
-            SCRIPTS_DIRS=(
-              "/root/.wine/drive_c/Program Files/Equiti Brokerage (Seychelles) MT5 Terminal/MQL5/Scripts"
-              "/root/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Scripts"
-              "/root/.wine_puprime/drive_c/Program Files/MetaTrader 5/MQL5/Scripts"
-              "/root/.wine_tmgm/drive_c/Program Files/MetaTrader 5/MQL5/Scripts"
-            )
+            EXPERTS_DIR="/root/.wine_tmgm/drive_c/Program Files/MetaTrader 5/MQL5/Experts"
+            SCRIPTS_DIR="/root/.wine_tmgm/drive_c/Program Files/MetaTrader 5/MQL5/Scripts"
 
-            # EA files → Experts (all except *Export* and *Script*)
-            EA_FILES=$(ls /tmp/mt5deploy/*.mq5 | grep -iv "Export\|Script" 2>/dev/null)
-            for dir in "${EXPERTS_DIRS[@]}"; do
-              [ -d "$dir" ] && cp $EA_FILES "$dir/" && echo "EA OK → $dir"
-            done
-
-            # Script/Export files → Scripts
-            SCRIPT_FILES=$(ls /tmp/mt5deploy/*.mq5 | grep -i "Export\|Script" 2>/dev/null)
-            for dir in "${SCRIPTS_DIRS[@]}"; do
-              [ -d "$dir" ] && cp $SCRIPT_FILES "$dir/" && echo "Script OK → $dir"
+            # Copy EA files to Experts
+            for f in /tmp/mt5deploy/*.mq5; do
+              name=$(basename "$f")
+              if echo "$name" | grep -qi "Export\|Script"; then
+                cp "$f" "$SCRIPTS_DIR/" && echo "Script → $SCRIPTS_DIR/$name"
+              else
+                cp "$f" "$EXPERTS_DIR/" && echo "EA    → $EXPERTS_DIR/$name"
+              fi
             done
 
             rm -rf /tmp/mt5deploy
-            echo "Deploy complete: $(date)"
+            echo "Files copied: $(date)"
+
+            # Compile via MetaEditor — terminal stays running, bot unaffected
+            export WINEPREFIX=/root/.wine_tmgm
+            export DISPLAY=:1
+            export XAUTHORITY=/root/.Xauthority
+            export WINEDEBUG=-all
+            ME="/root/.wine_tmgm/drive_c/Program Files/MetaTrader 5/metaeditor64.exe"
+
+            for mq5 in \
+              "$EXPERTS_DIR/XAUUSD_M15_EA_v5.2.mq5" \
+              "$EXPERTS_DIR/XAUUSD_M15_EA_v5.1.mq5" \
+              "$SCRIPTS_DIR/TradeHistoryExport.mq5"; do
+              [ -f "$mq5" ] || continue
+              win_path=$(echo "$mq5" | sed 's|/root/.wine_tmgm/drive_c|C:|; s|/|\\\\|g')
+              timeout 60 wine "$ME" /compile:"$win_path" /log:"C:\\\\compile.log" &
+            done
+            wait
+            echo "Compile done: $(date)"
+
+            echo "=== Compiled .ex5 ==="
+            ls -la "$EXPERTS_DIR"/*.ex5 2>/dev/null
+            ls -la "$SCRIPTS_DIR"/*.ex5 2>/dev/null
           ENDSSH

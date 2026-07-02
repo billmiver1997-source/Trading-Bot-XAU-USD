@@ -365,10 +365,11 @@ void OnTick()
       Print("SKIP: H4 flat — no bias");
    else
       Print("SCAN | ADX=",DoubleToString(adx,1),
+            " DI+=",DoubleToString(adxPlus[1],1)," DI-=",DoubleToString(adxMinus[1],1),
             " RSI=",DoubleToString(rsi,1),
-            " EMA21>50=",ema21>ema50,
             " H4Bull=",h4Bull," H4Bear=",h4Bear,
-            " price ",price>bbMid?"above":"below"," BBmid");
+            " price ",price>bbMid?"above":"below"," BBmid",
+            " candle=",iClose(_Symbol,PERIOD_M15,1)>iOpen(_Symbol,PERIOD_M15,1)?"bull":"bear");
 
    int sig=GetSignal();
    if(sig==1 &&!HasOpenBuy())  OpenBuy();

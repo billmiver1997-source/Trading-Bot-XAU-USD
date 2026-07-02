@@ -50,10 +50,11 @@ input double InpMaxDailyLossPC=3.0;
 input group "=== FILTERS ==="
 input double InpMaxSpread=60.0;
 input int    InpMaxTrades=2;
-input int    InpStartHour=8;
-input int    InpEndHour=20;
+input int    InpTimezoneOffset=3;       // EET offset: 2=winter, 3=summer (EEST)
+input int    InpStartHour=11;           // London open in EET (08:00 GMT+3)
+input int    InpEndHour=23;             // NY session end in EET (avoid midnight)
 input bool   InpSkipFriday=true;
-input int    InpCooldownMins=45;        // was 2h (120min) — now 45min
+input int    InpCooldownMins=45;
 
 int handleEMA_Fast,handleEMA_Slow,handleH4_Fast,handleH4_Slow;
 int handleRSI,handleADX,handleBB,handleATR;

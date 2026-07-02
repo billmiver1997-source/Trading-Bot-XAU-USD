@@ -322,9 +322,18 @@ void OnTick()
       lastTradeDay=dt.day;
    }
 
-   if(!IsTradingHours()) return;
+   if(!IsTradingHours())
+   {
+      Print("SKIP: outside trading hours (GMT ",dt.hour,":",dt.min,") — window 08-20");
+      return;
+   }
+
    double spread=SymbolInfoInteger(_Symbol,SYMBOL_SPREAD)*_Point;
-   if(spread>InpMaxSpread*_Point) return;
+   if(spread>InpMaxSpread*_Point)
+   {
+      Print("SKIP: spread too wide (",DoubleToString(spread/_Point,0)," pts, max ",InpMaxSpread,")");
+      return;
+   }
 
    ManagePositions();
 
@@ -333,12 +342,34 @@ void OnTick()
       double curEq=AccountInfoDouble(ACCOUNT_EQUITY);
       if(curEq<dailyEquityOpen*(1.0-InpMaxDailyLossPC/100.0))
       {
-         Print("Daily loss limit reached. No new entries.");
+         Print("SKIP: daily loss limit reached.");
          return;
       }
    }
 
-   if(CountMyTrades()>=InpMaxTrades) return;
+   if(CountMyTrades()>=InpMaxTrades)
+   {
+      Print("SKIP: max trades reached (",InpMaxTrades,")");
+      return;
+   }
+
+   // Log why GetSignal returns 0
+   double adx=adxVal[1],rsi=rsiVal[1];
+   double ema21=emaFast[1],ema50=emaSlow[1];
+   double bbMid=bbMiddle[1];
+   double price=SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   bool h4Bull=(h4Fast[0]>h4Slow[0]),h4Bear=(h4Fast[0]<h4Slow[0]);
+   if(adx<InpADX_Min)
+      Print("SKIP: ADX=",DoubleToString(adx,1)," < ",InpADX_Min);
+   else if(!h4Bull&&!h4Bear)
+      Print("SKIP: H4 flat — no bias");
+   else
+      Print("SCAN | ADX=",DoubleToString(adx,1),
+            " RSI=",DoubleToString(rsi,1),
+            " EMA21>50=",ema21>ema50,
+            " H4Bull=",h4Bull," H4Bear=",h4Bear,
+            " price ",price>bbMid?"above":"below"," BBmid");
+
    int sig=GetSignal();
    if(sig==1 &&!HasOpenBuy())  OpenBuy();
    if(sig==-1&&!HasOpenSell()) OpenSell();

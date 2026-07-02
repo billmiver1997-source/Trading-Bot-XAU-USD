@@ -326,7 +326,9 @@ void OnTick()
 
    if(!IsTradingHours())
    {
-      Print("SKIP: outside trading hours (GMT ",dt.hour,":",dt.min,") — window 08-20");
+      datetime eetNow=TimeGMT()+(datetime)(InpTimezoneOffset*3600);
+      MqlDateTime eet; TimeToStruct(eetNow,eet);
+      Print("SKIP: outside trading hours (EET ",eet.hour,":",eet.min,") — window ",InpStartHour,":00-",InpEndHour,":00 EET");
       return;
    }
 

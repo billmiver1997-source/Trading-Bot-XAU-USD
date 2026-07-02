@@ -119,9 +119,10 @@ bool RefreshBuffers()
 bool IsTradingHours()
 {
    MqlDateTime dt;
-   TimeToStruct(TimeGMT(),dt);
+   datetime eetTime=TimeGMT()+(datetime)(InpTimezoneOffset*3600);
+   TimeToStruct(eetTime,dt);
    if(dt.day_of_week==0||dt.day_of_week==6) return false;
-   if(InpSkipFriday&&dt.day_of_week==5&&dt.hour>=17) return false;
+   if(InpSkipFriday&&dt.day_of_week==5&&dt.hour>=20) return false; // Παρ 20:00 EET
    if(dt.hour<InpStartHour||dt.hour>=InpEndHour) return false;
    return true;
 }

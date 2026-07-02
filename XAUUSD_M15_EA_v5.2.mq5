@@ -83,7 +83,7 @@ int OnInit()
    ArraySetAsSeries(adxPlus,true);ArraySetAsSeries(adxMinus,true);
    ArraySetAsSeries(bbUpper,true);ArraySetAsSeries(bbMiddle,true);
    ArraySetAsSeries(bbLower,true);ArraySetAsSeries(atrVal,true);
-   Print("XAUUSD M15 EA v5.2 OK");
+   Print("XAUUSD M15 EA v5.3 OK");
    return INIT_SUCCEEDED;
 }
 

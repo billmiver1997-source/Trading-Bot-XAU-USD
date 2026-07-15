@@ -1,12 +1,16 @@
 //+------------------------------------------------------------------+
 //|  XAUUSD M15 Mean-Reversion Scalper v9                            |
-//|  Αγόρασε oversold, πούλα overbought — ελαφρύ ADX trend filter   |
+//|  Αγόρασε oversold, πούλα overbought — ADAPTIVE ADX trend filter |
 //|  BUY:  K crosses D από <25 + bullish bar + RSI>15               |
 //|  SELL: K crosses D από >75 + bearish bar + RSI<85               |
 //|  SL: 0.8×ATR | TP: 1.2×ATR | Risk: 1% | Max 3 trades/day        |
+//|  ADX threshold is relative to its own rolling average, not a    |
+//|  fixed number — "strong trend" is judged against what's normal  |
+//|  for this market recently, so it self-adjusts as conditions     |
+//|  change instead of using one hardcoded cutoff forever.          |
 //+------------------------------------------------------------------+
 #property copyright "Trading Nova"
-#property version   "9.40"
+#property version   "9.50"
 #include <Trade\Trade.mqh>
 #include <Trade\PositionInfo.mqh>
 CTrade trade;
@@ -41,9 +45,11 @@ input int    InpStartHour  = 9;
 input int    InpEndHour    = 23;
 input int    InpTZOffset   = 3;
 
-input group "=== ADX (light trend filter) ==="
-input int    InpADXPeriod  = 14;
-input double InpADXMax     = 35.0;   // skip counter-trend entries when trend this strong
+input group "=== ADX (adaptive trend filter) ==="
+input int    InpADXPeriod    = 14;
+input int    InpADXAvgPeriod = 30;    // bars used to compute this market's own recent-normal ADX
+input double InpADXRelMult   = 1.4;   // skip when ADX is this many times ABOVE its own recent average
+input double InpADXAbsCap    = 50.0;  // hard safety ceiling regardless of the adaptive baseline
 
 input group "=== NEWS FILTER ==="
 input bool   InpNewsFilterOn      = true;
@@ -70,17 +76,24 @@ int OnInit()
    { Print("Init failed"); return INIT_FAILED; }
    ArraySetAsSeries(sk,true); ArraySetAsSeries(sd,true);
    ArraySetAsSeries(rsi,true); ArraySetAsSeries(atr_v,true); ArraySetAsSeries(adx,true);
-   Print("XAUUSD v9 MeanReversion OK | Stoch25/75 | 3x/day | 20min cd | ADX<",DoubleToString(InpADXMax,0));
+   Print("XAUUSD v9 MeanReversion OK | Stoch25/75 | 3x/day | 20min cd | adaptive ADX x",DoubleToString(InpADXRelMult,1));
    return INIT_SUCCEEDED;
 }
 void OnDeinit(const int r){ IndicatorRelease(hStoch); IndicatorRelease(hRSI); IndicatorRelease(hATR); IndicatorRelease(hADX); }
 bool Refresh()
 {
+   int adxBars = InpADXAvgPeriod + 2;
    return CopyBuffer(hStoch,0,0,4,sk)    >=4
        && CopyBuffer(hStoch,1,0,4,sd)    >=4
        && CopyBuffer(hRSI,  0,0,4,rsi)   >=4
        && CopyBuffer(hATR,  0,0,4,atr_v) >=4
-       && CopyBuffer(hADX,  0,0,4,adx)   >=4;
+       && CopyBuffer(hADX,  0,0,adxBars,adx) >= adxBars;
+}
+double AdxBaseline()
+{
+   double sum=0; int n=0;
+   for(int i=1;i<=InpADXAvgPeriod && i<ArraySize(adx);i++){ sum+=adx[i]; n++; }
+   return n>0 ? sum/n : adx[1];
 }
 bool InSession()
 {
@@ -163,11 +176,13 @@ void OnTick()
 
    bool crossUp = sk[1]>sd[1] && sk[2]<=sd[2] && sk[1]<InpOversold;
    bool crossDn = sk[1]<sd[1] && sk[2]>=sd[2] && sk[1]>InpOverbought;
-   bool trendTooStrong = adx[1] > InpADXMax;
+   double adxAvg = AdxBaseline();
+   bool trendTooStrong = adx[1] > adxAvg*InpADXRelMult || adx[1] > InpADXAbsCap;
    bool newsBlack = NewsBlackout();
 
    Print("SCAN | K=",DoubleToString(sk[1],1)," D=",DoubleToString(sd[1],1),
          " RSI=",DoubleToString(rsi[1],1)," ADX=",DoubleToString(adx[1],1),
+         " ADXavg=",DoubleToString(adxAvg,1),
          " Cross=",crossUp?"BUY↑":crossDn?"SELL↓":"–",
          trendTooStrong && (crossUp||crossDn) ? " [TREND-SKIP]" : "",
          newsBlack && (crossUp||crossDn) ? " [NEWS-BLACKOUT]" : "",

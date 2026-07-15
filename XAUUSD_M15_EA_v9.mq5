@@ -1,12 +1,12 @@
 //+------------------------------------------------------------------+
 //|  XAUUSD M15 Mean-Reversion Scalper v9                            |
-//|  Αγόρασε oversold, πούλα overbought — χωρίς trend filter        |
+//|  Αγόρασε oversold, πούλα overbought — ελαφρύ ADX trend filter   |
 //|  BUY:  K crosses D από <25 + bullish bar + RSI>15               |
 //|  SELL: K crosses D από >75 + bearish bar + RSI<85               |
 //|  SL: 0.8×ATR | TP: 1.2×ATR | Risk: 1% | Max 3 trades/day        |
 //+------------------------------------------------------------------+
 #property copyright "Trading Nova"
-#property version   "9.20"
+#property version   "9.40"
 #include <Trade\Trade.mqh>
 #include <Trade\PositionInfo.mqh>
 CTrade trade;
@@ -41,8 +41,18 @@ input int    InpStartHour  = 9;
 input int    InpEndHour    = 23;
 input int    InpTZOffset   = 3;
 
-int hStoch, hRSI, hATR;
-double sk[], sd[], rsi[], atr_v[];
+input group "=== ADX (light trend filter) ==="
+input int    InpADXPeriod  = 14;
+input double InpADXMax     = 35.0;   // skip counter-trend entries when trend this strong
+
+input group "=== NEWS FILTER ==="
+input bool   InpNewsFilterOn      = true;
+input int    InpNewsMinutesBefore = 30;   // no new entries this many minutes before high-impact news
+input int    InpNewsMinutesAfter  = 30;   // ...and this many minutes after
+input string InpNewsCurrency      = "USD";
+
+int hStoch, hRSI, hATR, hADX;
+double sk[], sd[], rsi[], atr_v[], adx[];
 datetime lastTrade=0;
 double   dayEq=0; int lastDay=-1;
 int      dayTrades=0;
@@ -55,20 +65,22 @@ int OnInit()
    hStoch = iStochastic(_Symbol,PERIOD_M15,InpStochK,InpStochD,InpStochSl,MODE_SMA,STO_LOWHIGH);
    hRSI   = iRSI(_Symbol,PERIOD_M15,InpRSI,PRICE_CLOSE);
    hATR   = iATR(_Symbol,PERIOD_M15,InpATR);
-   if(hStoch==INVALID_HANDLE||hRSI==INVALID_HANDLE||hATR==INVALID_HANDLE)
+   hADX   = iADX(_Symbol,PERIOD_M15,InpADXPeriod);
+   if(hStoch==INVALID_HANDLE||hRSI==INVALID_HANDLE||hATR==INVALID_HANDLE||hADX==INVALID_HANDLE)
    { Print("Init failed"); return INIT_FAILED; }
    ArraySetAsSeries(sk,true); ArraySetAsSeries(sd,true);
-   ArraySetAsSeries(rsi,true); ArraySetAsSeries(atr_v,true);
-   Print("XAUUSD v9 MeanReversion OK | Stoch25/75 | 3x/day | 20min cd");
+   ArraySetAsSeries(rsi,true); ArraySetAsSeries(atr_v,true); ArraySetAsSeries(adx,true);
+   Print("XAUUSD v9 MeanReversion OK | Stoch25/75 | 3x/day | 20min cd | ADX<",DoubleToString(InpADXMax,0));
    return INIT_SUCCEEDED;
 }
-void OnDeinit(const int r){ IndicatorRelease(hStoch); IndicatorRelease(hRSI); IndicatorRelease(hATR); }
+void OnDeinit(const int r){ IndicatorRelease(hStoch); IndicatorRelease(hRSI); IndicatorRelease(hATR); IndicatorRelease(hADX); }
 bool Refresh()
 {
    return CopyBuffer(hStoch,0,0,4,sk)    >=4
        && CopyBuffer(hStoch,1,0,4,sd)    >=4
        && CopyBuffer(hRSI,  0,0,4,rsi)   >=4
-       && CopyBuffer(hATR,  0,0,4,atr_v) >=4;
+       && CopyBuffer(hATR,  0,0,4,atr_v) >=4
+       && CopyBuffer(hADX,  0,0,4,adx)   >=4;
 }
 bool InSession()
 {
@@ -78,6 +90,21 @@ bool InSession()
    if(dt.day_of_week==0||dt.day_of_week==6) return false;
    if(dt.day_of_week==5 && dt.hour>=22) return false;
    return dt.hour>=InpStartHour && dt.hour<InpEndHour;
+}
+bool NewsBlackout()
+{
+   if(!InpNewsFilterOn) return false;
+   datetime from = TimeCurrent() - InpNewsMinutesAfter*60;
+   datetime to   = TimeCurrent() + InpNewsMinutesBefore*60;
+   MqlCalendarValue values[];
+   int n = CalendarValueHistory(values, from, to, NULL, InpNewsCurrency);
+   for(int i=0;i<n;i++)
+   {
+      MqlCalendarEvent ev;
+      if(CalendarEventById(values[i].event_id, ev) && ev.importance==CALENDAR_IMPORTANCE_HIGH)
+         return true;
+   }
+   return false;
 }
 int CountMine(){ int c=0; for(int i=0;i<PositionsTotal();i++) if(pos.SelectByIndex(i)&&pos.Magic()==20250709&&pos.Symbol()==_Symbol) c++; return c; }
 bool HasBuy(){ for(int i=0;i<PositionsTotal();i++) if(pos.SelectByIndex(i)&&pos.Magic()==20250709&&pos.Symbol()==_Symbol&&pos.PositionType()==POSITION_TYPE_BUY) return true; return false; }
@@ -136,13 +163,19 @@ void OnTick()
 
    bool crossUp = sk[1]>sd[1] && sk[2]<=sd[2] && sk[1]<InpOversold;
    bool crossDn = sk[1]<sd[1] && sk[2]>=sd[2] && sk[1]>InpOverbought;
+   bool trendTooStrong = adx[1] > InpADXMax;
+   bool newsBlack = NewsBlackout();
 
    Print("SCAN | K=",DoubleToString(sk[1],1)," D=",DoubleToString(sd[1],1),
-         " RSI=",DoubleToString(rsi[1],1),
+         " RSI=",DoubleToString(rsi[1],1)," ADX=",DoubleToString(adx[1],1),
          " Cross=",crossUp?"BUY↑":crossDn?"SELL↓":"–",
+         trendTooStrong && (crossUp||crossDn) ? " [TREND-SKIP]" : "",
+         newsBlack && (crossUp||crossDn) ? " [NEWS-BLACKOUT]" : "",
          " Day=",dayTrades,"/",InpMaxTrades);
 
    double av=atr_v[1];
+
+   if(trendTooStrong || newsBlack) return;
 
    if(crossUp && rsi[1]>InpRSImin && !HasBuy())
    {

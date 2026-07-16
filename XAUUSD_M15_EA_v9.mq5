@@ -3,14 +3,18 @@
 //|  Αγόρασε oversold, πούλα overbought — ADAPTIVE ADX trend filter |
 //|  BUY:  K crosses D από <25 + bullish bar + RSI>15               |
 //|  SELL: K crosses D από >75 + bearish bar + RSI<85               |
-//|  SL: 0.8×ATR | TP: 1.2×ATR | Risk: 1% | Max 3 trades/day        |
+//|  SL: 1.1×ATR | TP: 1.6×ATR | Risk: 1% | Max 3 trades/day        |
 //|  ADX threshold is relative to its own rolling average, not a    |
 //|  fixed number — "strong trend" is judged against what's normal  |
 //|  for this market recently, so it self-adjusts as conditions     |
 //|  change instead of using one hardcoded cutoff forever.          |
+//|  SL widened from 0.8x to give entries room past opening noise   |
+//|  (fast <3min stopouts kept reversing back in our favor) —       |
+//|  Lots() auto-shrinks size to hold risk% constant, so this only  |
+//|  changes stop distance, not risk per trade or entry frequency.  |
 //+------------------------------------------------------------------+
 #property copyright "Trading Nova"
-#property version   "9.50"
+#property version   "9.60"
 #include <Trade\Trade.mqh>
 #include <Trade\PositionInfo.mqh>
 CTrade trade;
@@ -30,12 +34,12 @@ input double InpRSImax  = 85.0;
 
 input group "=== RISK ==="
 input int    InpATR     = 14;
-input double InpSL      = 0.8;
-input double InpTP      = 1.2;
+input double InpSL      = 1.1;
+input double InpTP      = 1.6;
 input double InpRisk    = 1.0;
 input double InpMaxDD   = 4.0;
-input double InpTrailTrigger = 0.9;
-input double InpTrailLock    = 0.4;
+input double InpTrailTrigger = 1.2;
+input double InpTrailLock    = 0.53;
 
 input group "=== FILTERS ==="
 input double InpMaxSpread  = 60.0;

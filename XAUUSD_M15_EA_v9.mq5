@@ -14,7 +14,7 @@
 //|  changes stop distance, not risk per trade or entry frequency.  |
 //+------------------------------------------------------------------+
 #property copyright "Trading Nova"
-#property version   "9.60"
+#property version   "9.61"
 #include <Trade\Trade.mqh>
 #include <Trade\PositionInfo.mqh>
 CTrade trade;
@@ -196,7 +196,7 @@ void OnTick()
 
    if(trendTooStrong || newsBlack) return;
 
-   if(crossUp && rsi[1]>InpRSImin && !HasBuy())
+   if(crossUp && rsi[1]>InpRSImin && !HasBuy() && !HasSell())
    {
       double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
       double sl=NormalizeDouble(ask-av*InpSL,_Digits);
@@ -209,7 +209,7 @@ void OnTick()
         Print("!!! BUY FAILED | retcode=",trade.ResultRetcode()," ",trade.ResultRetcodeDescription(),
               " | lots=",lots," ask=",ask," sl=",sl," tp=",tp," stops_level=",(long)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL));
    }
-   else if(crossDn && rsi[1]<InpRSImax && !HasSell())
+   else if(crossDn && rsi[1]<InpRSImax && !HasSell() && !HasBuy())
    {
       double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
       double sl=NormalizeDouble(bid+av*InpSL,_Digits);

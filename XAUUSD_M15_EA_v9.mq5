@@ -12,9 +12,16 @@
 //|  (fast <3min stopouts kept reversing back in our favor) —       |
 //|  Lots() auto-shrinks size to hold risk% constant, so this only  |
 //|  changes stop distance, not risk per trade or entry frequency.  |
+//|  DIRECTIONAL BIAS: ADX only measures trend STRENGTH, not which  |
+//|  way — this EA was still buying dips into real downtrends and   |
+//|  selling rips into real uptrends (the exact pattern behind our  |
+//|  worst losses). A slow EMA now gates direction: BUY only when   |
+//|  price is above it, SELL only when below. Complements ADX       |
+//|  (magnitude) with actual direction, without touching signal     |
+//|  frequency in genuinely rangy conditions.                       |
 //+------------------------------------------------------------------+
 #property copyright "Trading Nova"
-#property version   "9.61"
+#property version   "9.70"
 #include <Trade\Trade.mqh>
 #include <Trade\PositionInfo.mqh>
 CTrade trade;
@@ -61,8 +68,11 @@ input int    InpNewsMinutesBefore = 30;   // no new entries this many minutes be
 input int    InpNewsMinutesAfter  = 30;   // ...and this many minutes after
 input string InpNewsCurrency      = "USD";
 
-int hStoch, hRSI, hATR, hADX;
-double sk[], sd[], rsi[], atr_v[], adx[];
+input group "=== DIRECTIONAL BIAS (trade with the bigger trend) ==="
+input int    InpEMAPeriod = 100;   // ~1 trading day on M15 — only fade in the EMA's direction
+
+int hStoch, hRSI, hATR, hADX, hEMA;
+double sk[], sd[], rsi[], atr_v[], adx[], ema[], closeArr[];
 datetime lastTrade=0;
 double   dayEq=0; int lastDay=-1;
 int      dayTrades=0;
@@ -76,14 +86,16 @@ int OnInit()
    hRSI   = iRSI(_Symbol,PERIOD_M15,InpRSI,PRICE_CLOSE);
    hATR   = iATR(_Symbol,PERIOD_M15,InpATR);
    hADX   = iADX(_Symbol,PERIOD_M15,InpADXPeriod);
-   if(hStoch==INVALID_HANDLE||hRSI==INVALID_HANDLE||hATR==INVALID_HANDLE||hADX==INVALID_HANDLE)
+   hEMA   = iMA(_Symbol,PERIOD_M15,InpEMAPeriod,0,MODE_EMA,PRICE_CLOSE);
+   if(hStoch==INVALID_HANDLE||hRSI==INVALID_HANDLE||hATR==INVALID_HANDLE||hADX==INVALID_HANDLE||hEMA==INVALID_HANDLE)
    { Print("Init failed"); return INIT_FAILED; }
    ArraySetAsSeries(sk,true); ArraySetAsSeries(sd,true);
    ArraySetAsSeries(rsi,true); ArraySetAsSeries(atr_v,true); ArraySetAsSeries(adx,true);
-   Print("XAUUSD v9 MeanReversion OK | Stoch25/75 | 3x/day | 20min cd | adaptive ADX x",DoubleToString(InpADXRelMult,1));
+   ArraySetAsSeries(ema,true); ArraySetAsSeries(closeArr,true);
+   Print("XAUUSD v9 MeanReversion OK | Stoch25/75 | 3x/day | 20min cd | adaptive ADX x",DoubleToString(InpADXRelMult,1)," | EMA",InpEMAPeriod," bias");
    return INIT_SUCCEEDED;
 }
-void OnDeinit(const int r){ IndicatorRelease(hStoch); IndicatorRelease(hRSI); IndicatorRelease(hATR); IndicatorRelease(hADX); }
+void OnDeinit(const int r){ IndicatorRelease(hStoch); IndicatorRelease(hRSI); IndicatorRelease(hATR); IndicatorRelease(hADX); IndicatorRelease(hEMA); }
 bool Refresh()
 {
    int adxBars = InpADXAvgPeriod + 2;
@@ -91,7 +103,9 @@ bool Refresh()
        && CopyBuffer(hStoch,1,0,4,sd)    >=4
        && CopyBuffer(hRSI,  0,0,4,rsi)   >=4
        && CopyBuffer(hATR,  0,0,4,atr_v) >=4
-       && CopyBuffer(hADX,  0,0,adxBars,adx) >= adxBars;
+       && CopyBuffer(hADX,  0,0,adxBars,adx) >= adxBars
+       && CopyBuffer(hEMA,  0,0,4,ema)   >=4
+       && CopyClose(_Symbol,PERIOD_M15,0,4,closeArr) >=4;
 }
 double AdxBaseline()
 {
@@ -183,20 +197,24 @@ void OnTick()
    double adxAvg = AdxBaseline();
    bool trendTooStrong = adx[1] > adxAvg*InpADXRelMult || adx[1] > InpADXAbsCap;
    bool newsBlack = NewsBlackout();
+   bool biasUp = closeArr[1] > ema[1];
+   bool biasBlockBuy  = crossUp && !biasUp;   // dip-buy fighting a downtrend
+   bool biasBlockSell = crossDn && biasUp;    // rip-sell fighting an uptrend
 
    Print("SCAN | K=",DoubleToString(sk[1],1)," D=",DoubleToString(sd[1],1),
          " RSI=",DoubleToString(rsi[1],1)," ADX=",DoubleToString(adx[1],1),
-         " ADXavg=",DoubleToString(adxAvg,1),
+         " ADXavg=",DoubleToString(adxAvg,1)," Bias=",biasUp?"UP":"DN",
          " Cross=",crossUp?"BUY↑":crossDn?"SELL↓":"–",
          trendTooStrong && (crossUp||crossDn) ? " [TREND-SKIP]" : "",
          newsBlack && (crossUp||crossDn) ? " [NEWS-BLACKOUT]" : "",
+         (biasBlockBuy||biasBlockSell) ? " [BIAS-SKIP]" : "",
          " Day=",dayTrades,"/",InpMaxTrades);
 
    double av=atr_v[1];
 
    if(trendTooStrong || newsBlack) return;
 
-   if(crossUp && rsi[1]>InpRSImin && !HasBuy() && !HasSell())
+   if(crossUp && rsi[1]>InpRSImin && !HasBuy() && !HasSell() && !biasBlockBuy)
    {
       double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
       double sl=NormalizeDouble(ask-av*InpSL,_Digits);
@@ -209,7 +227,7 @@ void OnTick()
         Print("!!! BUY FAILED | retcode=",trade.ResultRetcode()," ",trade.ResultRetcodeDescription(),
               " | lots=",lots," ask=",ask," sl=",sl," tp=",tp," stops_level=",(long)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL));
    }
-   else if(crossDn && rsi[1]<InpRSImax && !HasSell() && !HasBuy())
+   else if(crossDn && rsi[1]<InpRSImax && !HasSell() && !HasBuy() && !biasBlockSell)
    {
       double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
       double sl=NormalizeDouble(bid+av*InpSL,_Digits);

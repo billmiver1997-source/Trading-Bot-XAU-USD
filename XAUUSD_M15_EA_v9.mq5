@@ -22,14 +22,16 @@
 //|  BREAKOUT-RETEST: second, independent entry path alongside the  |
 //|  mean-reversion signal above. Tracks the N-bar high/low; when   |
 //|  price closes through it, that level is remembered as "broken". |
-//|  If price then pulls back close to it without closing back      |
-//|  through, and the pullback bar closes back in the breakout      |
-//|  direction, that's the retest — enter with the breakout, not    |
-//|  against it. Still one position at a time (same risk gate as    |
-//|  the rest of the EA) to keep exposure predictable.               |
+//|  Went 0/5 on first live outing (2026-07-21/22), all fast SL     |
+//|  hits — same signature as the mean-reversion SL being too tight |
+//|  originally. Reworked: SL widened 1.0->1.6x ATR (a retest zone  |
+//|  is BY DEFINITION going to get whipsawed — needs room), and     |
+//|  entry now requires the bar's actual wick to have touched the   |
+//|  level (not just the close hovering near it) plus a real        |
+//|  rejection margin on the close, not a bare graze.                |
 //+------------------------------------------------------------------+
 #property copyright "Trading Nova"
-#property version   "9.81"
+#property version   "9.90"
 #include <Trade\Trade.mqh>
 #include <Trade\PositionInfo.mqh>
 CTrade trade;
@@ -81,11 +83,12 @@ input int    InpEMAPeriod = 40;    // ~10h on M15 — fast enough to catch an in
                                     // (100 was too slow: kept reading stale direction into a real move)
 
 input group "=== BREAKOUT-RETEST (2nd entry path) ==="
-input bool   InpBreakoutOn       = false;  // OFF: 5/5 losses across both EAs on first deploy (2026-07-21/22) — needs rework before re-enabling
+input bool   InpBreakoutOn       = true;   // re-enabled 2026-07-22 with wider SL + real wick-touch confirmation
 input int    InpBreakoutLookback = 20;   // bars used to define the level that gets broken
-input double InpRetestTolerance  = 0.3;  // ×ATR — how close price must return to the level to count as a retest
+input double InpRetestTolerance  = 0.3;  // ×ATR — how far the bar's wick may sit either side of the level and still count as a genuine retest
+input double InpRejectMargin     = 0.15; // ×ATR — how far the CLOSE must clear the level to count as a real rejection, not a graze
 input int    InpRetestMaxBars    = 20;   // give up on a break if no retest within this many bars
-input double InpBreakoutSL       = 1.0;  // ×ATR stop beyond the retested level
+input double InpBreakoutSL       = 1.6;  // ×ATR stop beyond the level — was 1.0, too tight for a zone that's SUPPOSED to get retested/whipsawed
 input double InpBreakoutTP       = 2.0;  // ×ATR target — wider, this is trend-following not fading
 
 int hStoch, hRSI, hATR, hADX, hEMA;
@@ -283,7 +286,13 @@ void OnTick()
       }
       else barsSinceBreak++;
 
-      if(breakDir==1 && MathAbs(c1-breakLevel)<=av*InpRetestTolerance && c1>breakLevel && c1>c2)
+      // Retest must be a real wick-touch-and-reject, not just a close hovering nearby:
+      // the bar's low/high has to have actually dipped into the level's zone, AND the
+      // close has to clear it by a real margin (rejection), AND still moving our way.
+      bool wickTouchUp = breakDir==1 && lowArr[1]<=breakLevel+av*InpRetestTolerance && lowArr[1]>=breakLevel-av*InpRetestTolerance*2;
+      bool wickTouchDn = breakDir==-1 && highArr[1]>=breakLevel-av*InpRetestTolerance && highArr[1]<=breakLevel+av*InpRetestTolerance*2;
+
+      if(breakDir==1 && wickTouchUp && c1>breakLevel+av*InpRejectMargin && c1>c2)
       {
          double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
          double sl=NormalizeDouble(breakLevel-av*InpBreakoutSL,_Digits);
@@ -295,7 +304,7 @@ void OnTick()
          else
            Print("!!! BREAKOUT BUY FAILED | retcode=",trade.ResultRetcode()," ",trade.ResultRetcodeDescription());
       }
-      else if(breakDir==-1 && MathAbs(c1-breakLevel)<=av*InpRetestTolerance && c1<breakLevel && c1<c2)
+      else if(breakDir==-1 && wickTouchDn && c1<breakLevel-av*InpRejectMargin && c1<c2)
       {
          double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
          double sl=NormalizeDouble(breakLevel+av*InpBreakoutSL,_Digits);

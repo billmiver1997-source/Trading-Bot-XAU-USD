@@ -29,7 +29,7 @@
 //|  the rest of the EA) to keep exposure predictable.               |
 //+------------------------------------------------------------------+
 #property copyright "Trading Nova"
-#property version   "9.80"
+#property version   "9.81"
 #include <Trade\Trade.mqh>
 #include <Trade\PositionInfo.mqh>
 CTrade trade;
@@ -81,7 +81,7 @@ input int    InpEMAPeriod = 40;    // ~10h on M15 — fast enough to catch an in
                                     // (100 was too slow: kept reading stale direction into a real move)
 
 input group "=== BREAKOUT-RETEST (2nd entry path) ==="
-input bool   InpBreakoutOn       = true;
+input bool   InpBreakoutOn       = false;  // OFF: 5/5 losses across both EAs on first deploy (2026-07-21/22) — needs rework before re-enabling
 input int    InpBreakoutLookback = 20;   // bars used to define the level that gets broken
 input double InpRetestTolerance  = 0.3;  // ×ATR — how close price must return to the level to count as a retest
 input int    InpRetestMaxBars    = 20;   // give up on a break if no retest within this many bars
